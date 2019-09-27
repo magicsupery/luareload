@@ -6,10 +6,33 @@ local debug = debug
 
 do -- sandbox begin
 
+-- wrapperStart
+local classWrapper = {
+	class = {},
+}
+function classWrapper.Class(name, super, isSingleton)
+	local newClass = {
+		__isClass = true,
+		super = super,
+		isSingleton = isSingleton
+	}
+
+	classWrapper.class[name] = newClass
+	return newClass
+end
+
+local _wraperModule = { 
+
+}
+_wraperModule["Core.Framework.Class"] = classWrapper
+
+-- wrapperEnd
+
 local function findloader(name)
-	if reload.postfix then
+	if reload.postfix and not _wraperModule[name] then
 		name = name .. reload.postfix
 	end
+
 	local msg = {}
 	for _, loader in ipairs(package.searchers) do
 		local f , extra = loader(name)
@@ -21,6 +44,7 @@ local function findloader(name)
 		end
 	end
 	error(string.format("module '%s' not found:%s", name, table.concat(msg)))
+
 end
 
 local global_mt = {
@@ -42,14 +66,20 @@ local module_dummy_mt = {
 }
 
 local function make_dummy_module(name)
+	local old_name = name
 	local name = "[" .. name .. "]"
 	if dummy_module_cache[name] then
 		return dummy_module_cache[name]
 	else
-		local obj = {}
-		dummy_module_cache[name] = obj
-		dummy_module_cache[obj] = name
-		return setmetatable(obj, module_dummy_mt)
+		-- FEATURE
+		if _wraperModule[old_name] then
+			return _wraperModule[old_name]
+		else
+			local obj = {}
+			dummy_module_cache[name] = obj
+			dummy_module_cache[obj] = name
+			return setmetatable(obj, module_dummy_mt)
+		end
 	end
 end
 
@@ -71,11 +101,13 @@ local function make_sandbox()
 	return setmetatable({}, global_mt)
 end
 
+
 function sandbox.require(name)
 	assert(type(name) == "string")
 	if _LOADED_DUMMY[name] then
 		return _LOADED_DUMMY[name]
 	end
+
 	local loader, arg = findloader(name)
 	local env, uv = debug.getupvalue(loader, 1)
 	if env == "_ENV" then
@@ -88,6 +120,7 @@ function sandbox.require(name)
 		_LOADED[name].loader = loader
 	end
 	_LOADED_DUMMY[name] = make_dummy_module(name)
+
 	return _LOADED_DUMMY[name]
 end
 
@@ -187,11 +220,13 @@ function sandbox.init(list)
 	for k,v in pairs(_LOADED) do
 		_LOADED[k] = nil
 	end
+
 	if list then
 		for _,name in ipairs(list) do
 			_LOADED_DUMMY[name] = make_dummy_module(name)
 		end
 	end
+
 end
 
 function sandbox.isdummy(v)
@@ -257,6 +292,7 @@ local function enum_object(value)
 			local i = 1
 			while true do
 				local name, v = debug.getupvalue(value, i)
+				print("==yc== getupvalue ", value , " name is ", name, v)
 				if name == nil or name == "" then
 					break
 				else
@@ -313,29 +349,52 @@ local function find_object(mod, name, id , ...)
 end
 
 local function match_objects(objects, old_module, map, globals)
+	local old_print = print
 	local print = reload.print
 	for _, item in ipairs(objects) do
 		local obj = item[1]
 		if sandbox.isdummy(obj) then
 			table.insert(globals, item)
 		else
+			old_print("==yc== find object ", table.unpack(item, 2))
+
+			-- 根据object 寻找旧模块中的obj
+			-- 如果name or id 不存在，name就是寻找module本身
 			local ok, old_one = pcall(find_object,old_module, table.unpack(item, 2))
 			if not ok then
 				local current = { table.unpack(item, 2) }
 				error ( "type mismatch : " .. table.concat(current, ",") )
 			end
+
 			if old_one == nil then
 				map[obj] = map[obj] or false
 			elseif type(old_one) ~= type(obj) then
 				local current = { table.unpack(item, 2) }
 				error ( "Not a table : " .. table.concat(current, ",") )
 			end
-			if map[obj] and map[obj] ~= old_one then
+
+			-- 这里的改动是允许upvalue中包含module本身,原来没有判断old_one 是否为nil
+			if map[obj] and old_one and map[obj] ~= old_one then
 				local current = { table.unpack(item, 2) }
 				error ( "Ambiguity table : " .. table.concat(current, ",") )
 			end
-			map[obj] = old_one
-			if print then print("MATCH", old_one, table.unpack(item,2)) end
+
+			--[[
+				old: foo1()
+
+				new: foo4()
+
+				override: foo1()
+						  foo4()
+
+				如果不判断old是否为nil，覆盖后不会处理foo4中的upvalue
+			]]
+			if old_one ~= nil then
+				map[obj] = old_one
+			else
+				map[obj] = map[obj] or false
+			end
+
 		end
 	end
 end
@@ -390,9 +449,17 @@ local function reload_list(list)
 	local _LOADED = debug.getregistry()._LOADED
 	local all = {}
 	for _, mod in ipairs(list) do
+		print("==yc== reload begin", mod)
+
+		print("==yc== require begin ", mod)
 		sandbox.require(mod)
+		print("==yc== require end", mod)
 		local m = sandbox.module(mod)
+
+		print("==yc== enum object begin ", mod)
 		local objs = enum_object(m.module)
+		print("==yc== enum object end ", mod)
+
 		local old_module = _LOADED[mod]
 		local result = {
 			globals = {},
@@ -403,8 +470,16 @@ local function reload_list(list)
 			objects = objs
 		}
 		all[mod] = result
+		
+		print("==yc== match object begin ", mod)
 		match_objects(objs, old_module, result.map, result.globals) -- find match table/func between old module and new one
+		print("==yc== match object end ", mod)
+
+		print("==yc== match upvalue begin ", mod)
 		match_upvalues(result.map, result.upvalues) -- find match func's upvalues
+		print("==yc== match upvalue end ", mod)
+
+		print("==yc== reload end", mod)
 	end
 	return all
 end
@@ -698,6 +773,8 @@ local function update_funcs(map)
 end
 
 function reload.reload(list)
+	print("==yc== reload all start")
+	local old_print = print
 	local print = reload.print
 	local REG = debug.getregistry()
 	local _LOADED = REG._LOADED
@@ -745,6 +822,7 @@ function reload.reload(list)
 
 	update_funcs(func_map)
 
+	old_print("==yc== reload all end")
 	return true
 end
 

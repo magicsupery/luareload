@@ -20,6 +20,9 @@ function mod.foobar(x)
 	a = x
 end
 
+function mod.foo3()
+end
+
 local meta = {}
 
 meta.__index = meta

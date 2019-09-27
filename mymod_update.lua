@@ -2,7 +2,7 @@ local debug = require "debug"
 
 local mod = {}
 
-local a
+local a = 2
 
 local function foobar()
 	print "UPDATE"
@@ -17,6 +17,10 @@ end
 
 function mod.foo2()
 	return foobar
+end
+
+function mod.foo4()
+	print("foo4 a is ", a)
 end
 
 function mod.foobar(x)
