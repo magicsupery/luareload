@@ -6,4 +6,7 @@ function Entity:do1()
     print("do1 old")
 end
 
+function Entity:_do()
+    print("_do old")
+end
 return Entity

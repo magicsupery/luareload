@@ -21,7 +21,6 @@ function classWrapper.Class(name, super, isSingleton)
 
 	classWrapper.class[name] = newClass
 
-	--setmetatable(newClass, newClass)
 	return newClass
 end
 
@@ -38,7 +37,7 @@ local wrapper_dummy_mt = {
 	__tostring = function(self) return _wraperModule[self] end,
 }
 
-setmetatable(_wraperModule, wrapper_dummy_mt)
+setmetatable(classWrapper, wrapper_dummy_mt)
 -- wrapperEnd
 
 local function findloader(name)
@@ -558,9 +557,11 @@ local function dummy_funcs(upvalues, map)
 	local dummy_handled = {}
 	for value in pairs(map) do
 		if type(value) == "function" then
+			print("start dummy function ", value)
 			local i = 1
 			while true do
 				local name,v = debug.getupvalue(value, i)
+				print("dummy ", name, v)
 				if name == nil or name == "" then
 					break
 				end
@@ -570,9 +571,12 @@ local function dummy_funcs(upvalues, map)
 				if not uv and not dummy_handled[id] and sandbox.isdummy(v) then
 					if print then print("DUMMY", value, name) end
 					debug.setupvalue(value, i, sandbox.value(v))
+					dummy_handled[id] = true
 				end
 				i = i + 1
+
 			end
+			print("end dummy function ", value)
 		end
 	end
 end
