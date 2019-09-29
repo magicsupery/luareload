@@ -1,10 +1,13 @@
-print("do reload entity 1")
 local class = require("Core.Framework.Class")
-print("class is ", class)
+local Monster = require("Entities.Entity2")
 local Entity = class.Class("Entity")
-
 function Entity:do1() 
-    print("do1 new")
+    Monster:do1()
+    print("entity do1 new")
 end
 
+function Entity:do2()
+    Monster:do1()
+    print("entity do2 new")
+end
 return Entity

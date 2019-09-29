@@ -12,7 +12,12 @@ ent:do1()
 -- reload env
 local class = require("Core.Framework.Class")
 class.setReload(true)
-reload.reload({"Entities.Entity1", })
+reload.reload({"Entities.Entity2", "Entities.Entity1"})
 class.setReload(false)
 
+for k, v in pairs(package.loaded) do
+    print (k, v)
+end
+
+ent:do2()
 ent:do1()

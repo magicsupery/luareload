@@ -10,22 +10,35 @@ do -- sandbox begin
 local classWrapper = {
 	class = {},
 }
+
 function classWrapper.Class(name, super, isSingleton)
 	local newClass = {
 		__isClass = true,
+		components = {},
 		super = super,
 		isSingleton = isSingleton
 	}
 
 	classWrapper.class[name] = newClass
+
+	--setmetatable(newClass, newClass)
 	return newClass
 end
 
 local _wraperModule = { 
 
 }
-_wraperModule["Core.Framework.Class"] = classWrapper
+_wraperModule["[Core.Framework.Class]"] = classWrapper
+_wraperModule[classWrapper] = "[Core.Framework.Class]"
 
+local wrapper_dummy_mt = {
+	__metatable = "WRAPPER",
+	__newindex = error,
+	__pairs = error,
+	__tostring = function(self) return _wraperModule[self] end,
+}
+
+setmetatable(_wraperModule, wrapper_dummy_mt)
 -- wrapperEnd
 
 local function findloader(name)
@@ -55,8 +68,8 @@ local global_mt = {
 local _LOADED_DUMMY = {}
 local _LOADED = {}
 local weak = { __mode = "kv" }
-local dummy_cache
-local dummy_module_cache
+local dummy_cache = {}
+local dummy_module_cache = {}
 
 local module_dummy_mt = {
 	__metatable = "MODULE",
@@ -66,14 +79,12 @@ local module_dummy_mt = {
 }
 
 local function make_dummy_module(name)
-	local old_name = name
 	local name = "[" .. name .. "]"
 	if dummy_module_cache[name] then
 		return dummy_module_cache[name]
 	else
-		-- FEATURE
-		if _wraperModule[old_name] then
-			return _wraperModule[old_name]
+		if _wraperModule[name] then
+			return _wraperModule[name]
 		else
 			local obj = {}
 			dummy_module_cache[name] = obj
@@ -185,17 +196,22 @@ end
 local function get_M(obj)
 	local k = dummy_module_cache[obj]
 	local M = debug.getregistry()._LOADED
-	local from, to, name = string.find(k, "^%[([_%w]+)%]")
+	local from, to, name = string.find(k, "^%[(.+)%]")
 	if from == nil then
 		error ("Invalid module " .. k)
 	end
 	local mod = assert(M[name])
-	for w in string.gmatch(k:sub(to+1), "[_%a]%w*") do
-		if mod == nil then
-			error("Invalid module key", k)
-		end
-		mod=mod[w]
+	return mod
+end
+
+local function get_W(obj)
+	local k = _wraperModule[obj]
+	local M = debug.getregistry()._LOADED
+	local from, to, name = string.find(k, "^%[(.+)%]")
+	if from == nil then
+		error ("Invalid module " .. k)
 	end
+	local mod = assert(M[name])
 	return mod
 end
 
@@ -205,6 +221,8 @@ function sandbox.value(obj)
 		return get_G(obj)
 	elseif meta == "MODULE" then
 		return get_M(obj)
+	elseif meta == "WRAPPER" then
+		return get_W(obj)
 	else
 		error("Invalid object", obj)
 	end
@@ -465,6 +483,7 @@ local function reload_list(list)
 			globals = {},
 			map = {},
 			upvalues = {},
+			dummy_upvalues = {}, --记录了含有dummyModule的function和对应的name，方便后续处理
 			old_module = old_module,
 			module = m ,
 			objects = objs
@@ -514,7 +533,6 @@ local function set_object(v, mod, name, tmore, fmore, ...)
 end
 
 local function patch_funcs(upvalues, map)
-	local print = reload.print
 	for value in pairs(map) do
 		if type(value) == "function" then
 			local i = 1
@@ -523,6 +541,7 @@ local function patch_funcs(upvalues, map)
 				if name == nil or name == "" then
 					break
 				end
+
 				local id = debug.upvalueid(value, i)
 				local uv = upvalues[id]
 				if uv then
@@ -535,13 +554,49 @@ local function patch_funcs(upvalues, map)
 	end
 end
 
+local function dummy_funcs(upvalues, map)
+	local dummy_handled = {}
+	for value in pairs(map) do
+		if type(value) == "function" then
+			local i = 1
+			while true do
+				local name,v = debug.getupvalue(value, i)
+				if name == nil or name == "" then
+					break
+				end
+
+				local id = debug.upvalueid(value, i)
+				local uv = upvalues[id]
+				if not uv and not dummy_handled[id] and sandbox.isdummy(v) then
+					if print then print("DUMMY", value, name) end
+					debug.setupvalue(value, i, sandbox.value(v))
+				end
+				i = i + 1
+			end
+		end
+	end
+end
+
 local function merge_objects(all)
 	local REG = debug.getregistry()
 	local _LOADED = REG._LOADED
 	local print = reload.print
+	--两遍遍历
+	--第一遍把未加载的模块加载上
+	--第二遍：
+	-- a.新模块替换旧模块,table替换:这里需要注意的是如果是特殊的wrapper类，需要做特殊处理
+	-- b.新函数替换旧函数，需要注意的是patch_funcs只能解决新函数的upvalue和旧函数upvalue同名的dummy问题
+	--   无法解决不同名的问题，需要增加一个dummy_funcs函数处理
 	for mod_name, data in pairs(all) do
+		if not data.old_module then
+			_LOADED[mod_name] = data.module.module
+		end
+	end
+
+	for mod_name, data in pairs(all) do
+		local map = data.map
 		if data.old_module then
-			local map = data.map
+			dummy_funcs(data.upvalues, map)			
 			patch_funcs(data.upvalues, map)
 			for new_one, old_one in pairs(map) do
 				if type(new_one) == "table" and old_one then
@@ -567,8 +622,10 @@ local function merge_objects(all)
 				end
 			end
 		else
-			_LOADED[mod_name] = data.module.module
+			dummy_funcs(data.upvalues, map)
 		end
+		
+		print("==yc== merge object end", mod_name)
 	end
 end
 
@@ -579,6 +636,7 @@ local function solve_globals(all)
 	for mod_name, data in pairs(all) do
 		for gk, item in pairs(data.globals) do
 			-- solve one global
+			print("==yc== solve_global ", gk, item)
 			local v = item[1]
 			local path = tostring(v)
 			local value
