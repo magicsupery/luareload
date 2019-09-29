@@ -12,7 +12,7 @@ local classWrapper = {
 }
 
 function classWrapper.Class(name, super, isSingleton)
-	local newClass = {
+local newClass = {
 		__isClass = true,
 		components = {},
 		super = super,
@@ -20,28 +20,28 @@ function classWrapper.Class(name, super, isSingleton)
 	}
 
 	classWrapper.class[name] = newClass
-
+	--setmetatable(newClass, {})
 	return newClass
 end
 
-local _wraperModule = { 
+local _wrapperModule = { 
 
 }
-_wraperModule["[Core.Framework.Class]"] = classWrapper
-_wraperModule[classWrapper] = "[Core.Framework.Class]"
 
 local wrapper_dummy_mt = {
 	__metatable = "WRAPPER",
 	__newindex = error,
 	__pairs = error,
-	__tostring = function(self) return _wraperModule[self] end,
+	__tostring = function(self) return _wrapperModule[self] end,
 }
 
+_wrapperModule["[Core.Framework.Class]"] = classWrapper
+_wrapperModule[classWrapper] = "[Core.Framework.Class]"
 setmetatable(classWrapper, wrapper_dummy_mt)
 -- wrapperEnd
 
 local function findloader(name)
-	if reload.postfix and not _wraperModule[name] then
+	if reload.postfix and not _wrapperModule[name] then
 		name = name .. reload.postfix
 	end
 
@@ -82,8 +82,8 @@ local function make_dummy_module(name)
 	if dummy_module_cache[name] then
 		return dummy_module_cache[name]
 	else
-		if _wraperModule[name] then
-			return _wraperModule[name]
+		if _wrapperModule[name] then
+			return _wrapperModule[name]
 		else
 			local obj = {}
 			dummy_module_cache[name] = obj
@@ -204,7 +204,7 @@ local function get_M(obj)
 end
 
 local function get_W(obj)
-	local k = _wraperModule[obj]
+	local k = _wrapperModule[obj]
 	local M = debug.getregistry()._LOADED
 	local from, to, name = string.find(k, "^%[(.+)%]")
 	if from == nil then
@@ -288,7 +288,7 @@ local function enum_object(value)
 	local objs = {}
 	local function iterate(value)
 		if sandbox.isdummy(value) then
-			if print then print("ENUM", value, table.concat(path, ".")) end
+			if print then print("ENUMDUMMY", value, table.concat(path, ".")) end
 			table.insert(all, { value, table.unpack(path) })
 			return
 		end
@@ -557,11 +557,9 @@ local function dummy_funcs(upvalues, map)
 	local dummy_handled = {}
 	for value in pairs(map) do
 		if type(value) == "function" then
-			print("start dummy function ", value)
 			local i = 1
 			while true do
 				local name,v = debug.getupvalue(value, i)
-				print("dummy ", name, v)
 				if name == nil or name == "" then
 					break
 				end
@@ -576,7 +574,6 @@ local function dummy_funcs(upvalues, map)
 				i = i + 1
 
 			end
-			print("end dummy function ", value)
 		end
 	end
 end
@@ -585,22 +582,10 @@ local function merge_objects(all)
 	local REG = debug.getregistry()
 	local _LOADED = REG._LOADED
 	local print = reload.print
-	--两遍遍历
-	--第一遍把未加载的模块加载上
-	--第二遍：
-	-- a.新模块替换旧模块,table替换:这里需要注意的是如果是特殊的wrapper类，需要做特殊处理
-	-- b.新函数替换旧函数，需要注意的是patch_funcs只能解决新函数的upvalue和旧函数upvalue同名的dummy问题
-	--   无法解决不同名的问题，需要增加一个dummy_funcs函数处理
-	for mod_name, data in pairs(all) do
-		if not data.old_module then
-			_LOADED[mod_name] = data.module.module
-		end
-	end
 
 	for mod_name, data in pairs(all) do
 		local map = data.map
 		if data.old_module then
-			dummy_funcs(data.upvalues, map)			
 			patch_funcs(data.upvalues, map)
 			for new_one, old_one in pairs(map) do
 				if type(new_one) == "table" and old_one then
@@ -626,7 +611,7 @@ local function merge_objects(all)
 				end
 			end
 		else
-			dummy_funcs(data.upvalues, map)
+			_LOADED[mod_name] = data.module.module
 		end
 		
 		print("==yc== merge object end", mod_name)
@@ -634,13 +619,13 @@ local function merge_objects(all)
 end
 
 local function solve_globals(all)
+	-- solve_globals 并不只是字面意思，主要是为了解决所有dummy处的引用
 	local _LOADED = debug.getregistry()._LOADED
 	local print = reload.print
 	local i = 0
 	for mod_name, data in pairs(all) do
 		for gk, item in pairs(data.globals) do
 			-- solve one global
-			print("==yc== solve_global ", gk, item)
 			local v = item[1]
 			local path = tostring(v)
 			local value
@@ -656,32 +641,12 @@ local function solve_globals(all)
 					G=G[w]
 				end
 				value = G
+			elseif getmetatable(v) == "WRAPPER" then
+				value = sandbox.value(v)
 			else
-				-- "MODULE"
-				local from, to, name = string.find(path, "^%[([_%w]+)%]")
-				if from == nil then
-					invalid = true
-					break
-				end
-					local mod = _LOADED[name]
-					if mod == nil then
-						invalid = true
-						break
-					end
-					for w in string.gmatch(path:sub(to+1), "[_%a]%w*") do
-						if mod == nil then
-							invalid = true
-							break
-						end
-						mod=mod[w]
-					end
-					local mt = getmetatable(mod)
-					if mt == "MODULE" then
-					else
-						unsolved = true
-						value = mod
-					end
+				value = sandbox.value(v)
 			end
+
 			if invalid then
 				if print then print("GLOBAL INVALID", path) end
 				data.globals[gk] = nil

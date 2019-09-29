@@ -15,9 +15,5 @@ class.setReload(true)
 reload.reload({"Entities.Entity2", "Entities.Entity1"})
 class.setReload(false)
 
-for k, v in pairs(package.loaded) do
-    print (k, v)
-end
-
 ent:do2()
 ent:do1()
