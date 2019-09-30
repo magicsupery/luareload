@@ -1,19 +1,10 @@
 local class = require("Core.Framework.Class")
 local Monster = require("Entities.Entity2")
 local Entity = class.Class("Entity")
+local BattleComponent = require("Entities.Component")
 
-local BattleComponent = class.Component("BattleComponent")
-function BattleComponent:ctor()
-    print("BattleComponent:ctor new")
-end
-
-local BattleComponent2 = class.Component("BattleComponent2")
-function BattleComponent2:ctor()
-    print("BattleComponent2:ctor new")
-end
 local EntityComponents = {
     BattleComponent,
-    BattleComponent2,
 }
 
 local Entity = class.Class("Entity")

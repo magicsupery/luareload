@@ -1,17 +1,7 @@
 local class = require("Core.Framework.Class")
-
-local BattleComponent = class.Component("BattleComponent")
-function BattleComponent:ctor()
-    print("BattleComponent:ctor old")
-end
-
-local BattleComponent2 = class.Component("BattleComponent2")
-function BattleComponent:ctor()
-    print("BattleComponent2:ctor old")
-end
+local BattleComponent = require("Entities.Component")
 local EntityComponents = {
     BattleComponent,
-    BattleComponent2,
 }
 local Entity = class.Class("Entity")
 class.AddComponents(Entity, EntityComponents)

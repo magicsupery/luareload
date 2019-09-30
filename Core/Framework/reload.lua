@@ -6,6 +6,9 @@ local debug = debug
 
 do -- sandbox begin
 
+local dummy_cache = {}
+local dummy_module_cache = {}
+
 -- wrapperStart
 local __defaultMethods = {
 		ctor = true,
@@ -47,6 +50,15 @@ function classWrapper.Component(name)
 end
 
 function classWrapper.AddComponent(cls, component)
+	if getmetatable(component) ~= nil then
+		local k = dummy_module_cache[component]
+		local from, to, name = string.find(k, "^%[(.+)%]")
+		if from == nil then
+			error ("Invalid module " .. k)
+		end
+		component = sandbox.module(name).module
+	end
+
 	local cls = classWrapper.class[cls]
 	if cls == nil then
 		error (" AddComponent but can not find class " .. name)
@@ -105,8 +117,6 @@ local global_mt = {
 local _LOADED_DUMMY = {}
 local _LOADED = {}
 local weak = { __mode = "kv" }
-local dummy_cache = {}
-local dummy_module_cache = {}
 
 local module_dummy_mt = {
 	__metatable = "MODULE",
@@ -411,6 +421,61 @@ local function find_object(mod, name, id , ...)
 	end
 end
 
+-- class规约
+local function sameClass(old, new)
+	local error = "[Class " .. new.typeName .. " ] "
+	if old == nil then
+		error = error .. "can not find old class " .. new.typeName
+		return false, error
+	end
+
+	if not old.__IsClass then
+		error = error .. "old is not a class " .. new.typeName
+		return false, error
+	end
+
+	if old.typeName ~= new.typeName then
+		error = error .. "old name is " .. old.typeName .. " new name is " .. new.typeName
+		return false, error
+	end
+
+	local oldHasSuper = (old.superType ~= nil)
+	local newHasSuper = (new.superType ~= nil)
+	if oldHasSuper ~= newHasSuper then
+		error = error .. "old has super " .. tostring(oldHasSuper) .. " new has super " .. tostring(newHasSuper)
+		return false, error
+	end
+	if oldHasSuper then
+		if old.superType.typeName ~= new.superType.typeName then
+			error = error .. "old super type is " .. old.superType.typeName .. " new super type is " .. new.superType.typeName
+			return false, error
+		end
+	end
+	if old._IsSingleton ~= new._IsSingleton then
+		error = error .. "old class singletons are " .. tostring(old._IsSingleton)
+			.. " new class singletons are " .. tostring(new._IsSingleton)
+		return false, error
+	end
+
+	-- component check
+	local oldComponents = old.components
+	local newComponents = new.components
+	if #oldComponents ~= #newComponents then
+		error = error .. " old class components num " .. #oldComponents .. " new class components num " .. #newComponents 
+		return false, error
+	end
+
+	for i, newComponent in ipairs(newComponents) do
+		local oldComponent = oldComponents[i]
+		if newComponent.typeName ~= oldComponent.typeName then
+			error = error .. " old class component index " .. i .. " is " .. oldComponent.typeName
+				.. " new class component index " .. i .. " is " .. newComponent.typeName
+			return false, error
+		end
+	end
+	return true
+end
+
 local function match_objects(objects, old_module, map, globals, classes, excludeUpvalues)
 	local print = reload.print
 	local objPath = {}
@@ -442,61 +507,6 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 				error ( "Ambiguity table : " .. table.concat(current, ",") )
 			end
 
-			-- class规约
-			local function sameClass(old, new)
-				local error = "[Class " .. new.typeName .. " ] "
-				if old == nil then
-					error = error .. "can not find old class " .. new.typeName
-					return false, error
-				end
-
-				if not old.__IsClass then
-					error = error .. "old is not a class " .. new.typeName
-					return false, error
-				end
-
-				if old.typeName ~= new.typeName then
-					error = error .. "old name is " .. old.typeName .. " new name is " .. new.typeName
-					return false, error
-				end
-
-				local oldHasSuper = (old.superType ~= nil)
-				local newHasSuper = (new.superType ~= nil)
-				if oldHasSuper ~= newHasSuper then
-					error = error .. "old has super " .. tostring(oldHasSuper) .. " new has super " .. tostring(newHasSuper)
-					return false, error
-				end
-				if oldHasSuper then
-					if old.superType.typeName ~= new.superType.typeName then
-						error = error .. "old super type is " .. old.superType.typeName .. " new super type is " .. new.superType.typeName
-						return false, error
-					end
-				end
-				if old._IsSingleton ~= new._IsSingleton then
-					error = error .. "old class singletons are " .. tostring(old._IsSingleton)
-					 .. " new class singletons are " .. tostring(new._IsSingleton)
-					return false, error
-				end
-
-				-- component check
-				local oldComponents = old.components
-				local newComponents = new.components
-				if #oldComponents ~= #newComponents then
-					error = error .. " old class components num " .. #oldComponents .. " new class components num " .. #newComponents 
-					return false, error
-				end
-
-				for i, newComponent in ipairs(newComponents) do
-					local oldComponent = oldComponents[i]
-					if newComponent.typeName ~= oldComponent.typeName then
-						error = error .. " old class component index " .. i .. " is " .. oldComponent.typeName
-							.. " new class component index " .. i .. " is " .. newComponent.typeName
-						return false, error
-					end
-				end
-				return true
-			end
-
 			if classes[obj] then
 				local ret, msg = sameClass(old_one, obj)
 				if not ret then
@@ -524,7 +534,6 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 			local path = table.unpack(item, 2)
 			if sandbox.isDefaultMethods(path) then
 				excludeUpvalues[obj] = true
-				print("push ", obj , " to exclude")
 			end
 
 		end
@@ -596,6 +605,12 @@ end
 local function reload_list(list)
 	local _LOADED = debug.getregistry()._LOADED
 	local all = {}
+	--两遍遍历，第一遍把所有模块加载进来,需要对component进行预处理
+	for _, mod in ipairs(list) do
+		sandbox.require(mod)
+	end
+
+	--第二遍处理
 	for _, mod in ipairs(list) do
 		print("==yc== reload begin", mod)
 
