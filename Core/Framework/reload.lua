@@ -92,7 +92,10 @@ setmetatable(classWrapper, wrapper_dummy_mt)
 
 local function findloader(name)
 	if reload.postfix and not _wrapperModule[name] then
-		name = name .. reload.postfix
+		local s = string.sub(name, 1, string.len("Core.Framework"))
+		if s ~= "Core.Framework" then
+			name = name .. reload.postfix
+		end
 	end
 
 	local msg = {}
@@ -399,6 +402,11 @@ local function enum_object(value)
 end
 
 local function find_object(mod, name, id , ...)
+	if name == "ctor" then
+		print("find _ctor")
+		name = "_ctor"
+	end
+
 	if mod == nil or name == nil then
 		return mod
 	end
@@ -484,11 +492,12 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 		if sandbox.isdummy(obj) then
 			table.insert(globals, item)
 		else
-			print("==yc== find object ", table.unpack(item, 2))
 
 			-- 根据object 寻找旧模块中的obj
 			-- 如果name or id 不存在，name就是寻找module本身
 			local ok, old_one = pcall(find_object,old_module, table.unpack(item, 2))
+
+			print("==yc== find object ", table.unpack(item, 2), obj, old_one)
 			if not ok then
 				local current = { table.unpack(item, 2) }
 				error ( "type mismatch : " .. table.concat(current, ",") )
@@ -533,7 +542,7 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 
 			local path = table.unpack(item, 2)
 			if sandbox.isDefaultMethods(path) then
-				excludeUpvalues[obj] = true
+				--excludeUpvalues[obj] = true
 			end
 
 		end
@@ -653,11 +662,14 @@ local function reload_list(list)
 end
 
 local function set_object(v, mod, name, tmore, fmore, ...)
+	print(v, mod, name, tmore, fmore)
 	if mod == nil then
 		return false
 	end
 	if type(mod) == "table" then
 		if not tmore then	-- no more
+
+			print("real set ", v, mod, name, tmore, fmore)
 			mod[name] = v
 			return true
 		end
@@ -671,6 +683,7 @@ local function set_object(v, mod, name, tmore, fmore, ...)
 			end
 			if n == name then
 				if not fmore then
+					print("real set 1", v, mod, name, tmore, fmore)
 					debug.setupvalue(mod, i, v)
 					return true
 				end
@@ -763,6 +776,7 @@ local function solve_globals(all)
 			local value
 			local unsolved
 			local invalid
+			print("path is ", path)
 			if getmetatable(v) == "GLOBAL" then
 				local G = _G
 				for w in string.gmatch(path, "[_%a]%w*") do
@@ -777,6 +791,9 @@ local function solve_globals(all)
 				value = sandbox.value(v)
 			elseif getmetatable(v) == "WRAPPER" then
 				value = sandbox.value(v)
+			else
+				invalid = true
+				unsolved = true
 			end
 
 			if invalid then
@@ -784,7 +801,7 @@ local function solve_globals(all)
 				data.globals[gk] = nil
 			elseif not unsolved then
 				i = i + 1
-				if print then print("GLOBAL", path, value) end
+				if print then print("GLOBAL", path, value, mod_name, table.unpack(item, 2)) end
 				set_object(value, _LOADED[mod_name], table.unpack(item,2))
 				data.globals[gk] = nil
 			end

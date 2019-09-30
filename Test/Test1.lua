@@ -12,6 +12,7 @@ ent:do1()
 -- reload env
 local class = require("Core.Framework.Class")
 class.setReload(true)
+--reload.reload({"Entities.Entity2"})
 reload.reload({"Entities.Component", "Entities.Entity2", "Entities.Entity1"})
 class.setReload(false)
 
@@ -20,3 +21,5 @@ ent:do2()
 ent:do1()
 
 local newEnt = Entity()
+
+

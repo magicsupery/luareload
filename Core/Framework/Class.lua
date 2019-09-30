@@ -235,6 +235,7 @@ function Class.Class(typeName, superType, isSingleton)
             if __defaultMethods[key] ~= nil then
                 if rawget(vtbl, key) == nil or reload or classType.__canOverrideDefaumtMethods[key] then
                     vtbl[key] =  __createDefaultMethodFunc(classType, key, value)
+                    rawset(vtbl, "_" .. key, value)
                     classType.__canOverrideDefaumtMethods[key] = false
                 else
                     error("class " .. classType.typeName .. " has repeat attr " .. key)
@@ -263,9 +264,11 @@ function Class.Class(typeName, superType, isSingleton)
     --默认方法call所有组件的同名方法
     classType.__canOverrideDefaumtMethods = {}
     for k, v in pairs(__defaultMethods) do
-        classType[k] = __createDefaultMethodFunc(classType, k, nil)
+        classType[k] = nil
+        rawset(vtbl, "_" .. k, function() end)
         classType.__canOverrideDefaumtMethods[k] = true
     end
+
 
     -- class的属性默认是不允许被重置的，添加一个允许被显示重置的方法
     classType.__forceAttrRepeat = {}
