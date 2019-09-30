@@ -7,10 +7,21 @@ local debug = debug
 do -- sandbox begin
 
 -- wrapperStart
+local __defaultMethods = {
+		ctor = true,
+		init = true,
+		start = true,
+		stop = true,
+		destroy = true,
+	}
+function sandbox.isDefaultMethods(key)
+	return __defaultMethods[key]
+end
+
 local classWrapper = {
 	class = {},
-}
 
+}
 function classWrapper.Class(name, super, isSingleton)
 	local newClass = {
 			__IsClass = true,
@@ -374,8 +385,9 @@ local function find_object(mod, name, id , ...)
 	end
 end
 
-local function match_objects(objects, old_module, map, globals, classes)
+local function match_objects(objects, old_module, map, globals, classes, excludeUpvalues)
 	local print = reload.print
+	local objPath = {}
 	for _, item in ipairs(objects) do
 		local obj = item[1]
 		if sandbox.isdummy(obj) then
@@ -417,10 +429,15 @@ local function match_objects(objects, old_module, map, globals, classes)
 					return false, error
 				end
 
+				if old.typeName ~= new.typeName then
+					error = error .. "old name is " .. old.typeName .. " new name is " .. new.typeName
+					return false, error
+				end
+
 				local oldHasSuper = (old.superType ~= nil)
 				local newHasSuper = (new.superType ~= nil)
 				if oldHasSuper ~= newHasSuper then
-					error = error .. "old has super " .. oldHasSuper .. " new has super " .. newHasSuper
+					error = error .. "old has super " .. tostring(oldHasSuper) .. " new has super " .. tostring(newHasSuper)
 					return false, error
 				end
 				if oldHasSuper then
@@ -466,6 +483,12 @@ local function match_objects(objects, old_module, map, globals, classes)
 				map[obj] = map[obj] or false
 			end
 
+			local path = table.unpack(item, 2)
+			if sandbox.isDefaultMethods(path) then
+				excludeUpvalues[obj] = true
+				print("push ", obj , " to exclude")
+			end
+
 		end
 	end
 end
@@ -487,9 +510,15 @@ local function find_upvalue(func, name)
 	end
 end
 
-local function match_upvalues(map, upvalues)
+local function match_upvalues(map, upvalues, excludeUpvalues)
+	upvalues["exclude"] = {}
+
 	for new_one , old_one in pairs(map) do
 		if type(new_one) == "function" then
+			if excludeUpvalues[new_one] ~= nil then
+				upvalues["exclude"][new_one] = {}
+			end
+
 			local i = 1
 			while true do
 				local name, value = debug.getupvalue(new_one, i)
@@ -500,17 +529,24 @@ local function match_upvalues(map, upvalues)
 				print("==yc== match_upvalues ", name, value)
 				local old_index = find_upvalue(old_one, name)
 				local id = debug.upvalueid(new_one, i)
-				print("old_index is ", old_index, id)
-				if not upvalues[id] and old_index then
-					upvalues[id] = {
+
+				if excludeUpvalues[new_one] ~= nil then
+					upvalues["exclude"][new_one][id] = {
 						func = old_one,
 						index = old_index,
-						oldid = debug.upvalueid(old_one, old_index),
 					}
-				elseif old_index then
-					local oldid = debug.upvalueid(old_one, old_index)
-					if oldid ~= upvalues[id].oldid then
-						error (string.format("Ambiguity upvalue : %s .%s",tostring(new_one),name))
+				else
+					if not upvalues[id] and old_index then
+						upvalues[id] = {
+							func = old_one,
+							index = old_index,
+							oldid = debug.upvalueid(old_one, old_index),
+						}
+					elseif old_index then
+						local oldid = debug.upvalueid(old_one, old_index)
+						if oldid ~= upvalues[id].oldid then
+							error (string.format("Ambiguity upvalue : %s .%s",tostring(new_one),name))
+						end
 					end
 				end
 				i = i + 1
@@ -539,7 +575,7 @@ local function reload_list(list)
 			globals = {},
 			map = {},
 			upvalues = {},
-			dummy_upvalues = {}, --记录了含有dummyModule的function和对应的name，方便后续处理
+			excludeUpvalues = {},  -- 记录了哪些函数的env可以和推导出来的不一致，直接使用旧的
 			old_module = old_module,
 			module = m ,
 			objects = objs,
@@ -548,11 +584,14 @@ local function reload_list(list)
 		all[mod] = result
 		
 		print("==yc== match object begin ", mod)
-		match_objects(objs, old_module, result.map, result.globals, result.classes) -- find match table/func between old module and new one
+		match_objects(objs, old_module, result.map, result.globals, result.classes, result.excludeUpvalues) -- find match table/func between old module and new one
 		print("==yc== match object end ", mod)
 
 		print("==yc== match upvalue begin ", mod)
-		match_upvalues(result.map, result.upvalues) -- find match func's upvalues
+		for k, v in pairs(result.excludeUpvalues) do
+			print("k v ", k, v)
+		end
+		match_upvalues(result.map, result.upvalues, result.excludeUpvalues) -- find match table/func between old module and new's upvalues
 		print("==yc== match upvalue end ", mod)
 
 		print("==yc== reload end", mod)
@@ -600,37 +639,18 @@ local function patch_funcs(upvalues, map)
 				end
 
 				local id = debug.upvalueid(value, i)
-				local uv = upvalues[id]
+				local uv = nil
+				if upvalues["exclude"][value] ~= nil then
+					uv = upvalues["exclude"][value][id]
+				else
+					uv = upvalues[id]
+				end
+
 				if uv then
 					if print then print("JOIN", value, name) end
 					debug.upvaluejoin(value, i, uv.func, uv.index)
 				end
 				i = i + 1
-			end
-		end
-	end
-end
-
-local function dummy_funcs(upvalues, map)
-	local dummy_handled = {}
-	for value in pairs(map) do
-		if type(value) == "function" then
-			local i = 1
-			while true do
-				local name,v = debug.getupvalue(value, i)
-				if name == nil or name == "" then
-					break
-				end
-
-				local id = debug.upvalueid(value, i)
-				local uv = upvalues[id]
-				if not uv and not dummy_handled[id] and sandbox.isdummy(v) then
-					if print then print("DUMMY", value, name) end
-					debug.setupvalue(value, i, sandbox.value(v))
-					dummy_handled[id] = true
-				end
-				i = i + 1
-
 			end
 		end
 	end
