@@ -4,6 +4,8 @@ local Entity = class.Class("Entity")
 
 function Entity:ctor() 
     print("Entity:ctor new")
+    print(class.isInstanceOf)
+    Monster:do1()
 end
 
 function Entity:do2()

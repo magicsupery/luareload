@@ -530,7 +530,7 @@ local function match_upvalues(map, upvalues, excludeUpvalues)
 				local old_index = find_upvalue(old_one, name)
 				local id = debug.upvalueid(new_one, i)
 
-				if excludeUpvalues[new_one] ~= nil then
+				if excludeUpvalues[new_one] ~= nil and old_index then
 					upvalues["exclude"][new_one][id] = {
 						func = old_one,
 						index = old_index,
