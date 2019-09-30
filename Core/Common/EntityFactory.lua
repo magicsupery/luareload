@@ -14,6 +14,10 @@ function EntityFactory.hasClass(name)
     return EntityFactory._entities[name] ~= nil
 end
 
+function EntityFactory.getEntity(name)
+    return EntityFactory._entities[name]
+end
+
 function EntityFactory._registerEntity(name, entity)
     EntityFactory._entities[name] = entity
 end

@@ -15,5 +15,8 @@ class.setReload(true)
 reload.reload({"Entities.Entity2", "Entities.Entity1"})
 class.setReload(false)
 
+
+local newEnt = Entity()
+
 ent:do2()
 ent:do1()

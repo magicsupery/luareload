@@ -219,6 +219,7 @@ function Class.Class(typeName, superType, isSingleton)
         
         return retFunction
     end
+
     -- 类的metatable设置，属性写入虚表，
     setmetatable(classType,
     {
@@ -229,16 +230,21 @@ function Class.Class(typeName, superType, isSingleton)
         __newindex = function(tbl, key, value)
 
             --Todo reload能否搞定？
-            --默认方法被使用者覆盖,覆盖方法内调用原有函数，再调用使用者方法
-            if rawget(vtbl, key) ~= nil and not classType.__forceAttrRepeat[key] and not reload then
-                if __defaultMethods[key] ~= nil and classType.__canOverrideDefaumtMethods[key] then
+            --默认方法
+            if __defaultMethods[key] ~= nil then
+                if rawget(vtbl, key) == nil or reload or classType.__canOverrideDefaumtMethods[key] then
                     vtbl[key] =  __createDefaultMethodFunc(classType, key, value)
                     classType.__canOverrideDefaumtMethods[key] = false
                 else
                     error("class " .. classType.typeName .. " has repeat attr " .. key)
                 end
+            --常规方法
             else
-                vtbl[key] = value
+                if rawget(vtbl, key) == nil or reload or classType.__forceAttrRepeat[key]  then
+                    vtbl[key] = value
+                else
+                    error("class " .. classType.typeName .. " has repeat attr " .. key)
+                end
             end
         end,
 
@@ -308,10 +314,14 @@ end
 local __ComponentRelationship = {}
 local ComponentNames = {} -- name -> ComponentType
 
+local function __defaultComponentMethod(...)
+end
+
 function Class.Component(typeName)
     local componentType = {}
     
     -- add component typeName 
+    componentType.__IsComponent = true
     componentType.typeName = typeName
     if ComponentNames[typeName] ~= nil then
         error("The component name is used already!!!" .. typeName)
@@ -321,7 +331,7 @@ function Class.Component(typeName)
 
     for k, v in pairs(__defaultMethods) do
         if not componentType[k] then
-            componentType[k] = v
+            componentType[k] = __defaultComponentMethod
         end
     end
 

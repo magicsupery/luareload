@@ -12,17 +12,18 @@ local classWrapper = {
 }
 
 function classWrapper.Class(name, super, isSingleton)
-local newClass = {
-		__isClass = true,
-		components = {},
-		super = super,
-		isSingleton = isSingleton
+	local newClass = {
+			__IsClass = true,
+			typeName = name,
+			superType = super,
+			_IsSingleton = isSingleton or false,
+			components = {},
 	}
 
 	classWrapper.class[name] = newClass
-	--setmetatable(newClass, {})
 	return newClass
 end
+
 
 local _wrapperModule = { 
 
@@ -223,7 +224,7 @@ function sandbox.value(obj)
 	elseif meta == "WRAPPER" then
 		return get_W(obj)
 	else
-		error("Invalid object", obj)
+		error("Invalid object" .. obj)
 	end
 end
 
@@ -286,6 +287,8 @@ local function enum_object(value)
 	local all = {}
 	local path = {}
 	local objs = {}
+	local classes = {}
+
 	local function iterate(value)
 		if sandbox.isdummy(value) then
 			if print then print("ENUMDUMMY", value, table.concat(path, ".")) end
@@ -296,6 +299,12 @@ local function enum_object(value)
 		if t == "function" or t == "table" then
 			if print then print("ENUM", value, table.concat(path, ".")) end
 			table.insert(all, { value, table.unpack(path) })
+
+			if t == "table" and value.__IsClass then
+				if print then print ("ENUMFINDCLASS", value, table.concat(path, ".")) end
+				classes[value] = true
+			end
+
 			if objs[value] then
 				-- already unfold
 				return
@@ -339,7 +348,7 @@ local function enum_object(value)
 		end
 	end
 	iterate(value)
-	return all
+	return all, classes
 end
 
 local function find_object(mod, name, id , ...)
@@ -365,15 +374,14 @@ local function find_object(mod, name, id , ...)
 	end
 end
 
-local function match_objects(objects, old_module, map, globals)
-	local old_print = print
+local function match_objects(objects, old_module, map, globals, classes)
 	local print = reload.print
 	for _, item in ipairs(objects) do
 		local obj = item[1]
 		if sandbox.isdummy(obj) then
 			table.insert(globals, item)
 		else
-			old_print("==yc== find object ", table.unpack(item, 2))
+			print("==yc== find object ", table.unpack(item, 2))
 
 			-- 根据object 寻找旧模块中的obj
 			-- 如果name or id 不存在，name就是寻找module本身
@@ -394,6 +402,52 @@ local function match_objects(objects, old_module, map, globals)
 			if map[obj] and old_one and map[obj] ~= old_one then
 				local current = { table.unpack(item, 2) }
 				error ( "Ambiguity table : " .. table.concat(current, ",") )
+			end
+
+			-- class规约
+			local function sameClass(old, new)
+				local error = "[Class " .. new.typeName .. " ] "
+				if old == nil then
+					error = error .. "can not find old class " .. new.typeName
+					return false, error
+				end
+
+				if not old.__IsClass then
+					error = error .. "old is not a class " .. new.typeName
+					return false, error
+				end
+
+				local oldHasSuper = (old.superType ~= nil)
+				local newHasSuper = (new.superType ~= nil)
+				if oldHasSuper ~= newHasSuper then
+					error = error .. "old has super " .. oldHasSuper .. " new has super " .. newHasSuper
+					return false, error
+				end
+				if oldHasSuper then
+					if old.superType.typeName ~= new.superType.typeName then
+						error = error .. "old super type is " .. old.superType.typeName .. " new super type is " .. new.superType.typeName
+						return false, error
+					end
+				end
+				if old._IsSingleton ~= new._IsSingleton then
+					error = error .. "old class singletons are " .. tostring(old._IsSingleton)
+					 .. " new class singletons are " .. tostring(new._IsSingleton)
+					return false, error
+				end
+
+				-- component check
+				local oldComponents = old.components
+				local newComponents = new.components
+
+				return true
+			end
+
+			if classes[obj] then
+				local ret, msg = sameClass(old_one, obj)
+				if not ret then
+					local current = { table.unpack(item, 2) }
+					error ( "Ambiguity Class : " .. table.concat(current, ",") .. " Error " .. msg)
+				end
 			end
 
 			--[[
@@ -442,8 +496,11 @@ local function match_upvalues(map, upvalues)
 				if name == nil or name == "" then
 					break
 				end
+
+				print("==yc== match_upvalues ", name, value)
 				local old_index = find_upvalue(old_one, name)
 				local id = debug.upvalueid(new_one, i)
+				print("old_index is ", old_index, id)
 				if not upvalues[id] and old_index then
 					upvalues[id] = {
 						func = old_one,
@@ -474,7 +531,7 @@ local function reload_list(list)
 		local m = sandbox.module(mod)
 
 		print("==yc== enum object begin ", mod)
-		local objs = enum_object(m.module)
+		local objs, classes = enum_object(m.module)
 		print("==yc== enum object end ", mod)
 
 		local old_module = _LOADED[mod]
@@ -485,12 +542,13 @@ local function reload_list(list)
 			dummy_upvalues = {}, --记录了含有dummyModule的function和对应的name，方便后续处理
 			old_module = old_module,
 			module = m ,
-			objects = objs
+			objects = objs,
+			classes = classes,
 		}
 		all[mod] = result
 		
 		print("==yc== match object begin ", mod)
-		match_objects(objs, old_module, result.map, result.globals) -- find match table/func between old module and new one
+		match_objects(objs, old_module, result.map, result.globals, result.classes) -- find match table/func between old module and new one
 		print("==yc== match object end ", mod)
 
 		print("==yc== match upvalue begin ", mod)
@@ -595,6 +653,7 @@ local function merge_objects(all)
 						if type(v) ~= "table" or	-- copy values not a table
 							getmetatable(v) ~= nil or -- copy dummy
 							old_one[k] == nil then	-- copy new object
+				            print ("COPY k, v ", k, v)
 							old_one[k] = v
 						end
 					end
@@ -641,9 +700,9 @@ local function solve_globals(all)
 					G=G[w]
 				end
 				value = G
-			elseif getmetatable(v) == "WRAPPER" then
+			elseif getmetatable(v) == "MODULE" then
 				value = sandbox.value(v)
-			else
+			elseif getmetatable(v) == "WRAPPER" then
 				value = sandbox.value(v)
 			end
 
