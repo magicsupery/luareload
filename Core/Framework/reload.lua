@@ -13,7 +13,8 @@ local __defaultMethods = {
 		start = true,
 		stop = true,
 		destroy = true,
-	}
+}
+
 function sandbox.isDefaultMethods(key)
 	return __defaultMethods[key]
 end
@@ -31,10 +32,35 @@ function classWrapper.Class(name, super, isSingleton)
 			components = {},
 	}
 
+	classWrapper.class[newClass] = newClass
 	classWrapper.class[name] = newClass
 	return newClass
 end
 
+function classWrapper.Component(name)
+	local newComponent = {
+		__IsComponent = true,
+		typeName = name,	
+	}
+
+	return newComponent
+end
+
+function classWrapper.AddComponent(cls, component)
+	local cls = classWrapper.class[cls]
+	if cls == nil then
+		error (" AddComponent but can not find class " .. name)
+		return
+	end
+	table.insert(cls.components, component)
+end
+
+function classWrapper.AddComponents(cls, components)
+	for i = 1, #components do
+		local component = components[i]
+		classWrapper.AddComponent(cls, component)
+	end
+end
 
 local _wrapperModule = { 
 
@@ -455,7 +481,19 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 				-- component check
 				local oldComponents = old.components
 				local newComponents = new.components
+				if #oldComponents ~= #newComponents then
+					error = error .. " old class components num " .. #oldComponents .. " new class components num " .. #newComponents 
+					return false, error
+				end
 
+				for i, newComponent in ipairs(newComponents) do
+					local oldComponent = oldComponents[i]
+					if newComponent.typeName ~= oldComponent.typeName then
+						error = error .. " old class component index " .. i .. " is " .. oldComponent.typeName
+							.. " new class component index " .. i .. " is " .. newComponent.typeName
+						return false, error
+					end
+				end
 				return true
 			end
 

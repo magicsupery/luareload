@@ -56,6 +56,7 @@ function Class.Class(typeName, superType, isSingleton)
 
     -- Component列表
     classType.components = {}
+    classType.componentNames = {}
 
 
     -- 父类类型
@@ -338,32 +339,19 @@ function Class.Component(typeName)
     return componentType
 end
 
-function Class.AddComponents(cls, components)
-    for i = 1, #components do
-        local component = components[i]
-        assert(ComponentNames[component.typeName] ~= nil, "component must be component " )
-    
-        cls.components[#cls.components + 1] = component
-        for name, attr in pairs(component) do
-            if name ~= "typeName"  and __defaultMethods[name] == nil then
-                if cls[name] == nil then
-                    cls[name] = attr
-                else
-                    -- 属性名称相同不覆盖而是给出警告。
-                    error(string.format("[WARNING] The attribute name %s is already in the Class %s!", 
-                    name, cls.toString(cls)))
-                end
-            end
-        end
-    end
-end
+local function _addComponent(cls, component)
+    assert(component.__IsComponent, "must be a component")
+    assert(component.typeName ~= nil, "component must have a name" )
+    assert(ComponentNames[component.typeName] ~= nil, "component must register" )
+    assert(cls.componentNames[component.typeName] == nil, "class already has same component " .. component.typeName)
 
-function Class.AddComponent(cls, component)
-    assert(ComponentNames[component.typeName] ~= nil, "component must be component " )
-    
-    cls.components[#cls.components + 1] = component
+    cls.componentNames[component.typeName] = true
+    cls.components[#cls.components + 1] = component 
     for name, attr in pairs(component) do
-        if name ~= "typeName"  and __defaultMethods[name] == nil then
+        if name ~= "typeName"  and name ~= "__IsComponent" and __defaultMethods[name] == nil then
+            if type(attr) ~= "function" then
+                error(string.format("[ERROR] The component attr %s is not a function ",  name))
+            end
             if cls[name] == nil then
                 cls[name] = attr
             else
@@ -373,6 +361,17 @@ function Class.AddComponent(cls, component)
             end
         end
     end
+end
+
+function Class.AddComponents(cls, components)
+    for i = 1, #components do
+        local component = components[i]
+        _addComponent(cls, component)
+    end
+end
+
+function Class.AddComponent(cls, component)
+    _addComponent(cls, component)
 end
 
 function Class.MixinClass(cls, mixin)
