@@ -250,7 +250,8 @@ local function get_M(obj)
 	if from == nil then
 		error ("Invalid module " .. k)
 	end
-	local mod = assert(M[name])
+
+	local mod = assert(M[name], "module " .. k .. "not found")
 	return mod
 end
 
