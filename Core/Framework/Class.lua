@@ -381,17 +381,4 @@ function Class.AddComponent(cls, component)
     _addComponent(cls, component)
 end
 
-function Class.MixinClass(cls, mixin)
-    assert(type(mixin) == 'table', "mixin must be a table")
-    for name, attr in pairs(mixin) do
-        if cls[name] == nil then
-            cls[name] = attr
-        else
-            -- 属性名称相同不覆盖而是给出警告。
-            error(string.format("[WARNING] The attribute name %s is already in the Class %s!", name, cls.toString()))
-        end
-    end
-end
-
-
 return Class
