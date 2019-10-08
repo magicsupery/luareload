@@ -1,5 +1,6 @@
 local class = require("Core.Framework.Class")
 local try = require("Core.Framework.Exception")
+
 local BattleComponent = require("Entities.Component")
 local EntityComponents = {
     BattleComponent,
@@ -18,4 +19,5 @@ end
 function Entity:_do()
     print("_do old")
 end
+
 return Entity
