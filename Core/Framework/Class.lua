@@ -54,6 +54,8 @@ function Class.Class(typeName, superType, isSingleton)
         TypeNames[typeName] = classType
     end
 
+    classType._IsSingleton = isSingleton or false
+
     -- Component列表
     classType.components = {}
     classType.componentNames = {}
@@ -231,9 +233,7 @@ function Class.Class(typeName, superType, isSingleton)
 
             --Todo reload能否搞定？
             --默认方法
-            print("force set 0 ", key, value)
             if __defaultMethods[key] ~= nil then
-                print("force set 1", key, value)
                 if rawget(vtbl, key) == nil or reload or classType.__canOverrideDefaumtMethods[key] then
                     vtbl[key] =  __createDefaultMethodFunc(classType, key, value)
                     rawset(vtbl, "_" .. key, value)
@@ -243,7 +243,6 @@ function Class.Class(typeName, superType, isSingleton)
                 end
             --常规方法
             else
-                print("force set 2", key, value)
                 if rawget(vtbl, key) == nil or reload or classType.__forceAttrRepeat[key]  then
                     vtbl[key] = value
                 else
@@ -263,7 +262,6 @@ function Class.Class(typeName, superType, isSingleton)
         end
     } )
 
-    classType._IsSingleton = isSingleton or false
 
     --默认方法call所有组件的同名方法
     classType.__canOverrideDefaumtMethods = {}
