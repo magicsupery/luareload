@@ -339,7 +339,11 @@ local function enum_object(value)
 	local objs = {}
 	local classes = {}
 
-	local function iterate(value)
+	local function iterate(value, inClass)
+		if inClass == nil then
+			inClass = false
+		end
+
 		if sandbox.isdummy(value) then
 			if print then print("ENUMDUMMY", value, table.concat(path, ".")) end
 			table.insert(all, { value, table.unpack(path) })
@@ -350,9 +354,12 @@ local function enum_object(value)
 			if print then print("ENUM", value, table.concat(path, ".")) end
 			table.insert(all, { value, table.unpack(path) })
 
-			if t == "table" and value.__IsClass then
-				if print then print ("ENUMFINDCLASS", value, table.concat(path, ".")) end
-				classes[value] = true
+			if t == "table" then
+				if value.__IsClass then
+					if print then print ("ENUMFINDCLASS", value, table.concat(path, ".")) end
+					classes[value] = true
+					inClass = true
+				end
 			end
 
 			if objs[value] then
@@ -379,7 +386,7 @@ local function enum_object(value)
 					if vt == "function" or vt == "table" then
 						path[depth] = name
 						path[depth + 1] = i
-						iterate(v)
+						iterate(v, inClass)
 						path[depth] = nil
 						path[depth + 1] = nil
 					end
@@ -391,22 +398,21 @@ local function enum_object(value)
 				if not accept_key_type[type(k)] then
 					error("Invalid key : " .. k .. " " .. table.concat(path, "."))
 				end
+				if inClass and sandbox.isDefaultMethods(k) then
+					k = "_" .. k
+				end
+
 				path[depth] = k
-				iterate(v)
+				iterate(v, inClass)
 				path[depth] = nil
 			end
 		end
 	end
 	iterate(value)
-	return all, classes
+	return all, classes 
 end
 
 local function find_object(mod, name, id , ...)
-	if name == "ctor" then
-		print("find _ctor")
-		name = "_ctor"
-	end
-
 	if mod == nil or name == nil then
 		return mod
 	end
@@ -495,8 +501,8 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 
 			-- 根据object 寻找旧模块中的obj
 			-- 如果name or id 不存在，name就是寻找module本身
+			
 			local ok, old_one = pcall(find_object,old_module, table.unpack(item, 2))
-
 			print("==yc== find object ", table.unpack(item, 2), obj, old_one)
 			if not ok then
 				local current = { table.unpack(item, 2) }
@@ -540,11 +546,15 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 				map[obj] = map[obj] or false
 			end
 
+			--[[
+
+			exluceupvalues 是之前用于处理ctor env不一致的方法，现在已经改变
 			local path = table.unpack(item, 2)
 			if sandbox.isDefaultMethods(path) then
-				--excludeUpvalues[obj] = true
+				excludeUpvalues[obj] = true
 			end
 
+			]]
 		end
 	end
 end
@@ -629,7 +639,7 @@ local function reload_list(list)
 		local m = sandbox.module(mod)
 
 		print("==yc== enum object begin ", mod)
-		local objs, classes = enum_object(m.module)
+		local objs, classes= enum_object(m.module)
 		print("==yc== enum object end ", mod)
 
 		local old_module = _LOADED[mod]
@@ -646,13 +656,11 @@ local function reload_list(list)
 		all[mod] = result
 		
 		print("==yc== match object begin ", mod)
-		match_objects(objs, old_module, result.map, result.globals, result.classes, result.excludeUpvalues) -- find match table/func between old module and new one
+		match_objects(objs, old_module, result.map, result.globals, 
+		result.classes, result.excludeUpvalues) -- find match table/func between old module and new one
 		print("==yc== match object end ", mod)
 
 		print("==yc== match upvalue begin ", mod)
-		for k, v in pairs(result.excludeUpvalues) do
-			print("k v ", k, v)
-		end
 		match_upvalues(result.map, result.upvalues, result.excludeUpvalues) -- find match table/func between old module and new's upvalues
 		print("==yc== match upvalue end ", mod)
 
@@ -662,14 +670,11 @@ local function reload_list(list)
 end
 
 local function set_object(v, mod, name, tmore, fmore, ...)
-	print(v, mod, name, tmore, fmore)
 	if mod == nil then
 		return false
 	end
 	if type(mod) == "table" then
 		if not tmore then	-- no more
-
-			print("real set ", v, mod, name, tmore, fmore)
 			mod[name] = v
 			return true
 		end
@@ -683,7 +688,6 @@ local function set_object(v, mod, name, tmore, fmore, ...)
 			end
 			if n == name then
 				if not fmore then
-					print("real set 1", v, mod, name, tmore, fmore)
 					debug.setupvalue(mod, i, v)
 					return true
 				end
@@ -723,11 +727,14 @@ local function patch_funcs(upvalues, map)
 end
 
 local function merge_objects(all)
+
 	local REG = debug.getregistry()
 	local _LOADED = REG._LOADED
 	local print = reload.print
 
+	local test_one = nil
 	for mod_name, data in pairs(all) do
+		print("==yc== merge object begin ", mod_name)
 		local map = data.map
 		if data.old_module then
 			patch_funcs(data.upvalues, map)
@@ -739,7 +746,7 @@ local function merge_objects(all)
 						if type(v) ~= "table" or	-- copy values not a table
 							getmetatable(v) ~= nil or -- copy dummy
 							old_one[k] == nil then	-- copy new object
-				            print ("COPY k, v ", k, v)
+							print ("COPY k, v ", k, v, old_one)
 							old_one[k] = v
 						end
 					end
@@ -776,7 +783,6 @@ local function solve_globals(all)
 			local value
 			local unsolved
 			local invalid
-			print("path is ", path)
 			if getmetatable(v) == "GLOBAL" then
 				local G = _G
 				for w in string.gmatch(path, "[_%a]%w*") do
@@ -988,7 +994,9 @@ function reload.reload(list)
 	local func_map = {}
 	for _, data in pairs(result) do
 		for k,v in pairs(data.map) do
-			if type(k) == "function" then
+			-- 这里必须判断 v也是function，否则新添加的function = false，会导致替换所有false
+			if type(k) == "function" and type(v) == "function" then
+				print("UPDATEFUNC ", k, v)
 				func_map[v] = k
 			end
 		end
