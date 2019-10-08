@@ -30,7 +30,7 @@ function classWrapper.Class(name, super, isSingleton)
 	local newClass = {
 			__IsClass = true,
 			typeName = name,
-			superType = super,
+			superType = classWrapper.GenerateClass(super),
 			_IsSingleton = isSingleton or false,
 			components = {},
 	}
@@ -49,16 +49,53 @@ function classWrapper.Component(name)
 	return newComponent
 end
 
-function classWrapper.AddComponent(cls, component)
+function classWrapper.GenerateClass(cls)
+	if getmetatable(cls) ~= nil then
+		local k = dummy_module_cache[cls]
+		local from, to, name = string.find(k, "^%[(.+)%]")
+		if from == nil then
+			error ("Invalid module " .. k)
+		end
+		--如果该模块此次也被更新加载，则用新内容
+		--否则构建一个，拥有name的class，不做任何覆盖
+		--如果都不存在则报错
+		dummyModule = sandbox.module(name)
+		if dummyModule ~= nil then
+			component = dummyModule.module
+		else
+			realClass = debug.getregistry()._LOADED[name]
+			assert(realClass, "class" .. k .. "can not found")
+			cls = classWrapper.Class(realClass.typeName, realClass.superType, realClass._IsSingleton)
+		end
+	end
+
+	return cls 
+end
+function classWrapper.GenerateComponent(component)
 	if getmetatable(component) ~= nil then
 		local k = dummy_module_cache[component]
 		local from, to, name = string.find(k, "^%[(.+)%]")
 		if from == nil then
 			error ("Invalid module " .. k)
 		end
-		component = sandbox.module(name).module
+		--如果该模块此次也被更新加载，则用新内容
+		--否则构建一个，拥有name的component，不做任何覆盖
+		--如果都不存在则报错
+		dummyModule = sandbox.module(name)
+		if dummyModule ~= nil then
+			component = dummyModule.module
+		else
+			realComponent = debug.getregistry()._LOADED[name]
+			assert(realComponent, "component " .. k .. "can not found")
+			component = classWrapper.Component(realComponent.typeName)
+		end
 	end
 
+	return component
+end
+
+function classWrapper.AddComponent(cls, component)
+	component = classWrapper.GenerateComponent(component)
 	local cls = classWrapper.class[cls]
 	if cls == nil then
 		error (" AddComponent but can not find class " .. name)
@@ -462,6 +499,8 @@ local function sameClass(old, new)
 	end
 	if oldHasSuper then
 		if old.superType.typeName ~= new.superType.typeName then
+			print(old.superType.typeName)
+			print(new.superType.typeName)
 			error = error .. "old super type is " .. old.superType.typeName .. " new super type is " .. new.superType.typeName
 			return false, error
 		end
