@@ -556,7 +556,7 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 				checkClass = true
 			end
 
-			print("==yc== find object ", table.unpack(item, 2), obj, old_one)
+			print("==yc== match object ", table.concat({table.unpack(item, 2)}, "."), obj, old_one, type(item[2]), old_module)
 			if not ok then
 				local current = { table.unpack(item, 2) }
 				error ( "type mismatch : " .. table.concat(current, ",") )
@@ -632,6 +632,7 @@ end
 
 local function match_upvalues(map, upvalues, excludeUpvalues)
 	upvalues["exclude"] = {}
+	upvalues["_ENV"] = {}
 
 	for new_one , old_one in pairs(map) do
 		if type(new_one) == "function" then
@@ -639,6 +640,7 @@ local function match_upvalues(map, upvalues, excludeUpvalues)
 				upvalues["exclude"][new_one] = {}
 			end
 
+			upvalues["_ENV"][new_one] = {}
 			local i = 1
 			while true do
 				local name, value = debug.getupvalue(new_one, i)
@@ -656,16 +658,28 @@ local function match_upvalues(map, upvalues, excludeUpvalues)
 						index = old_index,
 					}
 				else
-					if not upvalues[id] and old_index then
-						upvalues[id] = {
-							func = old_one,
-							index = old_index,
-							oldid = debug.upvalueid(old_one, old_index),
-						}
-					elseif old_index then
-						local oldid = debug.upvalueid(old_one, old_index)
-						if oldid ~= upvalues[id].oldid then
-							error (string.format("Ambiguity upvalue : %s .%s",tostring(new_one),name))
+
+					--对于ENV来说，可能之前的函数是被hack实现的，比如class设计，父类实现
+					--导致function的ENV可能不一致，这种情况用exlude方式规避，该函数的ENV遵从之前的ENV
+					if name == "_ENV" then
+						if old_index then
+							upvalues["_ENV"][new_one][id] = {
+								func = old_one,
+								index = old_index,
+							}
+						end
+					else
+						if not upvalues[id] and old_index then
+							upvalues[id] = {
+								func = old_one,
+								index = old_index,
+								oldid = debug.upvalueid(old_one, old_index),
+							}
+						elseif old_index then
+							local oldid = debug.upvalueid(old_one, old_index)
+							if oldid ~= upvalues[id].oldid then
+								error (string.format("Ambiguity upvalue : %s .%s",tostring(new_one),name))
+							end
 						end
 					end
 				end
@@ -766,6 +780,8 @@ local function patch_funcs(upvalues, map)
 				local uv = nil
 				if upvalues["exclude"][value] ~= nil then
 					uv = upvalues["exclude"][value][id]
+				elseif upvalues["_ENV"][value][id] ~= nil then
+					uv = upvalues["_ENV"][value][id]
 				else
 					uv = upvalues[id]
 				end
@@ -939,6 +955,7 @@ local function update_funcs(map)
 				local nv = map[v]
 				if nv then
 					rawset(root,k,nv)
+					print("RAWSETFUNC ", root, k, v , nv)
 					update_funcs_(nv)
 				else
 					update_funcs_(v)
@@ -1045,20 +1062,20 @@ function reload.reload(list)
 		local n = solve_globals(result)
 	until n == 0
 
-	local func_map = {}
-	for _, data in pairs(result) do
-		for k,v in pairs(data.map) do
-			-- 这里必须判断 v也是function，否则新添加的function = false，会导致替换所有false
-			if type(k) == "function" and type(v) == "function" then
-				print("UPDATEFUNC ", k, v)
-				func_map[v] = k
-			end
-		end
-	end
+--	local func_map = {}
+--	for _, data in pairs(result) do
+--		for k,v in pairs(data.map) do
+--			-- 这里必须判断 v也是function，否则新添加的function = false，会导致替换所有false
+--			if type(k) == "function" and type(v) == "function" then
+--				print("UPDATEFUNC ", k, v)
+--				func_map[v] = k
+--			end
+--		end
+--	end
 	result = nil
 	sandbox.clear()
 
-	update_funcs(func_map)
+--	update_funcs(func_map)
 
 	old_print("==yc== reload all end")
 	return true
