@@ -351,20 +351,14 @@ function Class.Component(typeName)
     return componentType
 end
 
-local function _addComponent(cls, component)
-    assert(component.__IsComponent, "must be a component")
-    assert(component.typeName ~= nil, "component must have a name" )
-    assert(ComponentNames[component.typeName] ~= nil, "component must register" )
-    assert(cls.componentNames[component.typeName] == nil, "class already has same component " .. component.typeName)
-
-    cls.componentNames[component.typeName] = true
-    cls.components[#cls.components + 1] = component 
+local function _addComponentAttr(cls, component)
     for name, attr in pairs(component) do
         if name ~= "typeName"  and name ~= "__IsComponent" and __defaultMethods[name] == nil then
             if type(attr) ~= "function" then
                 error(string.format("[ERROR] The component attr %s is not a function ",  name))
             end
-            if cls[name] == nil then
+
+            if cls[name] == nil or reload then
                 cls[name] = attr
             else
                 -- 属性名称相同不覆盖而是给出警告。
@@ -373,6 +367,16 @@ local function _addComponent(cls, component)
             end
         end
     end
+end
+local function _addComponent(cls, component)
+    assert(component.__IsComponent, "must be a component")
+    assert(component.typeName ~= nil, "component must have a name" )
+    assert(ComponentNames[component.typeName] ~= nil, "component must register" )
+    assert(cls.componentNames[component.typeName] == nil, "class already has same component " .. component.typeName)
+
+    cls.componentNames[component.typeName] = true
+    cls.components[#cls.components + 1] = component 
+    _addComponentAttr(cls, component)
 end
 
 function Class.AddComponents(cls, components)
@@ -397,6 +401,11 @@ function Class.OnReload()
             cls[k] = nil 
         end
         cls.superCachedKeys = {}
+
+        -- reset component methods
+        for _, component in ipairs(cls.components) do
+            _addComponentAttr(cls, component)
+        end
     end
 end
 
