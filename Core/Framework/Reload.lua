@@ -1062,6 +1062,7 @@ function reload.reload(list)
 		local n = solve_globals(result)
 	until n == 0
 
+
 --	local func_map = {}
 --	for _, data in pairs(result) do
 --		for k,v in pairs(data.map) do

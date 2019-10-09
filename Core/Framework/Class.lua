@@ -32,11 +32,13 @@ function Class.createSingletonClass(cls, ...)
 end
 
 function Class.setReload(flag)
+    if flag == false then
+        Class.OnReload()
+    end
     reload = flag
 end
 
 local TypeNames = {}
-
 -- 参数含义为：
 -- typeName: 字符串形式的类型名称
 -- superType: 父类的类型，可以为nil
@@ -63,7 +65,7 @@ function Class.Class(typeName, superType, isSingleton)
 
     -- 父类类型
     classType.superType = superType
-
+    classType.superCachedKeys = {} -- reload之后需要清空
     -- 在Class身上记录继承关系
     -- Todo：在修改了继承关系的情况下，Reload和Hotfix可能会存在问题
     classType._inheritsCount = 0
@@ -149,23 +151,27 @@ function Class.Class(typeName, superType, isSingleton)
         end
     end
 
-    if superType then
-        -- 有父类存在时，设置类身上的super属性
-        classType.super = setmetatable( { },
-        {
-            __index = function(tbl, key)
-                local func = __ClassTypeList[superType][key]
-                if "function" == type(func) then
-                    -- 缓存查找结果
-                    -- Todo，要考虑reload的影响
-                    tbl[key] = func
-                    return func
-                else
-                    error("Accessing super class field are not allowed!")
+    classType.setSuperMeta = function()
+        if superType then
+            -- 有父类存在时，设置类身上的super属性
+            classType.super = setmetatable( { },
+            {
+                __index = function(tbl, key)
+                    local func = __ClassTypeList[superType][key]
+                    if "function" == type(func) then
+                        -- 缓存查找结果
+                        -- Todo，要考虑reload的影响
+                        tbl[key] = func
+                        return func
+                    else
+                        error("Accessing super class field are not allowed!")
+                    end
                 end
-            end
-        } )
+            } )
+        end
     end
+
+    classType.setSuperMeta()
 
     -- 虚表对象。
     local vtbl = { }
@@ -289,6 +295,7 @@ function Class.Class(typeName, superType, isSingleton)
             __index = function(tbl, key)
                 local ret = __ClassTypeList[superType][key]
                 -- Todo 缓存提高了效率，但是要考虑reload时的处理。
+                classType.superCachedKeys[key] = true
                 vtbl[key] = ret
                 return ret
             end
@@ -377,6 +384,20 @@ end
 
 function Class.AddComponent(cls, component)
     _addComponent(cls, component)
+end
+
+function Class.OnReload()
+    for name, cls in pairs(TypeNames) do
+        -- clear super meta
+        cls.setSuperMeta()
+
+        -- clear cached super keys
+        for k, _ in pairs(cls.superCachedKeys) do
+            print("CLASSCLEAR set class ", name, " key ", k, " to nil ")
+            cls[k] = nil 
+        end
+        cls.superCachedKeys = {}
+    end
 end
 
 return Class
