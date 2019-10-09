@@ -52,20 +52,25 @@ end
 function classWrapper.GenerateClass(cls)
 	if getmetatable(cls) ~= nil then
 		local k = dummy_module_cache[cls]
-		local from, to, name = string.find(k, "^%[(.+)%]")
-		if from == nil then
-			error ("Invalid module " .. k)
-		end
-		--如果该模块此次也被更新加载，则用新内容
-		--否则构建一个，拥有name的class，不做任何覆盖
-		--如果都不存在则报错
-		dummyModule = sandbox.module(name)
-		if dummyModule ~= nil then
-			component = dummyModule.module
+		--非dummy，是真实的class, 解决ClassTest-Test5的问题，继承链上传过来的superType不是dummy，是realClass.superType
+		if k == nil then
+			cls = classWrapper.Class(cls.typeName, cls.superType, cls._IsSingleton)
 		else
-			realClass = debug.getregistry()._LOADED[name]
-			assert(realClass, "class" .. k .. "can not found")
-			cls = classWrapper.Class(realClass.typeName, realClass.superType, realClass._IsSingleton)
+			local from, to, name = string.find(k, "^%[(.+)%]")
+			if from == nil then
+				error ("Invalid module " .. k)
+			end
+			--如果该模块此次也被更新加载，则用新内容
+			--否则构建一个，拥有name的class，不做任何覆盖
+			--如果都不存在则报错
+			dummyModule = sandbox.module(name)
+			if dummyModule ~= nil then
+				component = dummyModule.module
+			else
+				realClass = debug.getregistry()._LOADED[name]
+				assert(realClass, "class" .. k .. "can not found")
+				cls = classWrapper.Class(realClass.typeName, realClass.superType, realClass._IsSingleton)
+			end
 		end
 	end
 
@@ -329,6 +334,7 @@ function sandbox.init(list)
 
 	if list then
 		for _,name in ipairs(list) do
+			print("==yc== init dummy ", name)
 			_LOADED_DUMMY[name] = make_dummy_module(name)
 		end
 	end
@@ -533,6 +539,7 @@ end
 local function match_objects(objects, old_module, map, globals, classes, excludeUpvalues)
 	local print = reload.print
 	local objPath = {}
+
 	for _, item in ipairs(objects) do
 		local obj = item[1]
 		if sandbox.isdummy(obj) then
@@ -541,8 +548,14 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 
 			-- 根据object 寻找旧模块中的obj
 			-- 如果name or id 不存在，name就是寻找module本身
-			
 			local ok, old_one = pcall(find_object,old_module, table.unpack(item, 2))
+
+			-- 只有在class作为module的时候，才去check，作为upvalue时check的oldone是upvalue而不是module
+			local checkClass = false
+			if table.unpack(item, 2) == nil then
+				checkClass = true
+			end
+
 			print("==yc== find object ", table.unpack(item, 2), obj, old_one)
 			if not ok then
 				local current = { table.unpack(item, 2) }
@@ -562,12 +575,13 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 				error ( "Ambiguity table : " .. table.concat(current, ",") )
 			end
 
-			if classes[obj] then
+			if classes[obj] and checkClass then
 				local ret, msg = sameClass(old_one, obj)
 				if not ret then
 					local current = { table.unpack(item, 2) }
 					error ( "Ambiguity Class : " .. table.concat(current, ",") .. " Error " .. msg)
 				end
+
 			end
 
 			--[[
