@@ -342,6 +342,7 @@ function sandbox.init(list)
 end
 
 function sandbox.isdummy(v)
+	--这里如果v是str，也会被当成dummy, 
 	if safe_function[v] then
 		return true
 	end
@@ -543,6 +544,7 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 	for _, item in ipairs(objects) do
 		local obj = item[1]
 		if sandbox.isdummy(obj) then
+			print("==yc== match_globals ", obj)
 			table.insert(globals, item)
 		else
 
@@ -573,15 +575,16 @@ local function match_objects(objects, old_module, map, globals, classes, exclude
 			if map[obj] and old_one and map[obj] ~= old_one then
 				local current = { table.unpack(item, 2) }
 				error ( "Ambiguity table : " .. table.concat(current, ",") )
+				
 			end
 
-			if classes[obj] and checkClass then
+			if classes[obj] ~= nil and checkClass then
 				local ret, msg = sameClass(old_one, obj)
 				if not ret then
 					local current = { table.unpack(item, 2) }
 					error ( "Ambiguity Class : " .. table.concat(current, ",") .. " Error " .. msg)
 				end
-
+				classes[obj] = old_one
 			end
 
 			--[[
@@ -630,7 +633,7 @@ local function find_upvalue(func, name)
 	end
 end
 
-local function match_upvalues(map, upvalues, excludeUpvalues)
+local function match_upvalues(map, upvalues, excludeUpvalues, classes)
 	upvalues["exclude"] = {}
 	upvalues["_ENV"] = {}
 
@@ -646,6 +649,12 @@ local function match_upvalues(map, upvalues, excludeUpvalues)
 				local name, value = debug.getupvalue(new_one, i)
 				if name == nil or name == "" then
 					break
+				end
+
+				-- 如果是class upvalue，需要替换成真正的class，而不是虚拟的wrapperClass	
+				if classes[value] ~= nil then
+					debug.setupvalue(new_one, i, classes[value])
+					value = classes[value]
 				end
 
 				print("==yc== match_upvalues ", name, value)
@@ -729,7 +738,7 @@ local function reload_list(list)
 		print("==yc== match object end ", mod)
 
 		print("==yc== match upvalue begin ", mod)
-		match_upvalues(result.map, result.upvalues, result.excludeUpvalues) -- find match table/func between old module and new's upvalues
+		match_upvalues(result.map, result.upvalues, result.excludeUpvalues, result.classes) -- find match table/func between old module and new's upvalues
 		print("==yc== match upvalue end ", mod)
 
 		print("==yc== reload end", mod)
