@@ -14,6 +14,7 @@ local Entity = require(prefix .. "Entities.Entity")
 
 local ent = Entity()
 
+local f = ent.replace
 ent:replace()
 ent:remove()
 ent:destroy()
@@ -49,3 +50,5 @@ newEnt:replace()
 newEnt:remove()
 newEnt:add()
 newEnt:destroy()
+
+f()
