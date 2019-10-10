@@ -1,5 +1,5 @@
 
-local reload = require("Core.Framework.reload")
+local reload = require("Core.Framework.Reload")
 reload.postfix = "_update"	-- for test
 reload.print = print
 
