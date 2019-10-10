@@ -2,6 +2,7 @@ local reload = {}
 local sandbox = {}
 
 local table = table
+table.unpack = unpack
 local debug = debug
 
 local _wrapperModule = { 
@@ -173,7 +174,7 @@ local function findloader(name)
 	end
 
 	local msg = {}
-	for _, loader in ipairs(package.searchers) do
+	for _, loader in ipairs(package.loaders) do
 		local f , extra = loader(name)
 		local t = type(f)
 		if t == "function" then
@@ -244,16 +245,9 @@ function sandbox.require(name)
 	end
 
 	local loader, arg = findloader(name)
-	local env, uv = debug.getupvalue(loader, 1)
-	if env == "_ENV" then
-		debug.setupvalue(loader, 1, make_sandbox())
-	end
+	debug.setfenv(loader, make_sandbox())
 	local ret = loader(name, arg) or true
-	_LOADED[name] = { module = ret }
-	if env == "_ENV" then
-		debug.setupvalue(loader, 1, nil)
-		_LOADED[name].loader = loader
-	end
+	_LOADED[name] = { module = ret , loader=loader}
 	_LOADED_DUMMY[name] = make_dummy_module(name)
 
 	return _LOADED_DUMMY[name]
@@ -1092,7 +1086,11 @@ function reload.reload(list)
 	end
 	sandbox.init(tmp)	-- init dummy modoule existed
 
-	local ok, result = xpcall(reload_list, debug.traceback, list)
+	function reload_list_wrapper()
+		return reload_list(list)
+	end
+
+	local ok, result = xpcall(reload_list_wrapper, debug.traceback)
 	if not ok then
 		sandbox.clear()
 		if print then print("ERROR", result) end
