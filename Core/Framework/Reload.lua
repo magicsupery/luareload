@@ -391,6 +391,8 @@ function sandbox.clear()
 	for k, v in pairs(_LOADED) do
 		_LOADED[k] = nil
 	end
+
+	classWrapper.class = {}
 end
 
 end	-- sandbox end
