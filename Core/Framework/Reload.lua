@@ -4,6 +4,12 @@ local sandbox = {}
 local table = table
 local debug = debug
 
+local _wrapperModule = { 
+
+}
+
+local LoggerPath = "[Core.Log.LoggerManager]"
+local ClassPath = "[Core.Framework.Class]"
 do -- sandbox begin
 
 local dummy_cache = {}
@@ -116,28 +122,54 @@ function classWrapper.AddComponents(cls, components)
 	end
 end
 
-local _wrapperModule = { 
 
+local loggerWrapper = {
+	generateLogger = nil,
 }
+
+local _loggerMt = {
+	__metatable = "LOGGER",
+	__newindex = error,
+	__pairs = error,
+}
+function loggerWrapper.getLogger(name)
+	local logger = { 
+		name = name,
+	}
+
+	setmetatable(logger, _loggerMt)
+	return logger
+end
+
+function loggerWrapper.setGenerateLoggerFunc(func)
+	loggerWrapper.generateLogger = func
+end
+
 
 local wrapper_dummy_mt = {
 	__metatable = "WRAPPER",
-	__newindex = error,
+	--__newindex = error,
 	__pairs = error,
 	__tostring = function(self) return _wrapperModule[self] end,
 }
 
-_wrapperModule["[Core.Framework.Class]"] = classWrapper
-_wrapperModule[classWrapper] = "[Core.Framework.Class]"
+_wrapperModule[ClassPath] = classWrapper
+_wrapperModule[classWrapper] = ClassPath
 setmetatable(classWrapper, wrapper_dummy_mt)
+
+_wrapperModule[LoggerPath] = loggerWrapper
+_wrapperModule[loggerWrapper] = LoggerPath
+setmetatable(loggerWrapper, wrapper_dummy_mt)
 -- wrapperEnd
+
 
 local function findloader(name)
 	if reload.postfix and not _wrapperModule[name] then
-		local s = string.sub(name, 1, string.len("Core.Framework"))
-		if s ~= "Core.Framework" then
-			name = name .. reload.postfix
-		end
+		--local s = string.sub(name, 1, string.len("Core.Framework"))
+		--if s ~= "Core.Framework" then
+			--name = name .. reload.postfix
+		--end
+		name = name .. reload.postfix
 	end
 
 	local msg = {}
@@ -362,6 +394,10 @@ function sandbox.clear()
 end
 
 end	-- sandbox end
+
+function reload.initEnv(envTable)
+	_wrapperModule[LoggerPath].setGenerateLoggerFunc(envTable["loggerGenerateFunc"])
+end
 
 function reload.list()
 	local list = {}
@@ -876,6 +912,8 @@ local function solve_globals(all)
 				value = sandbox.value(v)
 			elseif getmetatable(v) == "WRAPPER" then
 				value = sandbox.value(v)
+			elseif getmetatable(v) == "LOGGER" then
+				value = _wrapperModule[LoggerPath].generateLogger(v.name)
 			else
 				invalid = true
 				unsolved = true
