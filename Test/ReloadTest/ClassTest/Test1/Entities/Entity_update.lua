@@ -7,6 +7,8 @@ function Entity:ctor()
 end
 
 function Entity:replace() 
+    Entity.remove(self)
+    self:remove()
     print("replace new")
 end
 
