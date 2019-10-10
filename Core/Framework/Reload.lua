@@ -245,8 +245,10 @@ function sandbox.require(name)
 	end
 
 	local loader, arg = findloader(name)
+	local oldEnv = debug.getfenv(loader)
 	debug.setfenv(loader, make_sandbox())
 	local ret = loader(name, arg) or true
+	debug.setfenv(loader, oldEnv)
 	_LOADED[name] = { module = ret , loader=loader}
 	_LOADED_DUMMY[name] = make_dummy_module(name)
 
@@ -677,6 +679,13 @@ local function match_upvalues(map, upvalues, excludeUpvalues, classes)
 
 			upvalues["_ENV"][new_one] = {}
 			local i = 1
+
+			--如果存在old_one，获取old_one的env，set给new_one
+			if old_one then
+				assert(type(old_one) == "function")
+				debug.setfenv(new_one, debug.getfenv(old_one))
+			end
+
 			while true do
 				local name, value = debug.getupvalue(new_one, i)
 				if name == nil or name == "" then
@@ -699,31 +708,20 @@ local function match_upvalues(map, upvalues, excludeUpvalues, classes)
 						index = old_index,
 					}
 				else
-
-					--对于ENV来说，可能之前的函数是被hack实现的，比如class设计，父类实现
-					--导致function的ENV可能不一致，这种情况用exlude方式规避，该函数的ENV遵从之前的ENV
-					if name == "_ENV" then
-						if old_index then
-							upvalues["_ENV"][new_one][id] = {
-								func = old_one,
-								index = old_index,
-							}
-						end
-					else
-						if not upvalues[id] and old_index then
-							upvalues[id] = {
-								func = old_one,
-								index = old_index,
-								oldid = debug.upvalueid(old_one, old_index),
-							}
-						elseif old_index then
-							local oldid = debug.upvalueid(old_one, old_index)
-							if oldid ~= upvalues[id].oldid then
-								error (string.format("Ambiguity upvalue : %s .%s",tostring(new_one),name))
-							end
+					if not upvalues[id] and old_index then
+						upvalues[id] = {
+							func = old_one,
+							index = old_index,
+							oldid = debug.upvalueid(old_one, old_index),
+						}
+					elseif old_index then
+						local oldid = debug.upvalueid(old_one, old_index)
+						if oldid ~= upvalues[id].oldid then
+							error (string.format("Ambiguity upvalue : %s .%s",tostring(new_one),name))
 						end
 					end
 				end
+
 				i = i + 1
 			end
 		end
@@ -830,6 +828,7 @@ local function patch_funcs(upvalues, map)
 				if uv then
 					if print then print("JOIN", value, name) end
 					debug.upvaluejoin(value, i, uv.func, uv.index)
+					--debug.setupvalue(value, i, debug.getupvalue(uv.func, uv.index))
 				end
 				i = i + 1
 			end
